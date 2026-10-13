@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mis inversiones</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f1f4f7;--sf:#fff;--ink:#14202b;--mut:#5d6b78;--line:#d9e0e6;--acc:#1f4e79;--gain:#11795a;--loss:#b3372f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f161d;--sf:#17212b;--ink:#e6edf3;--mut:#93a2b0;--line:#28343f;--acc:#6fa8dc;--gain:#3ccf9b;--loss:#ff7b72}}
+:root[data-theme="dark"]{--bg:#0f161d;--sf:#17212b;--ink:#e6edf3;--mut:#93a2b0;--line:#28343f;--acc:#6fa8dc;--gain:#3ccf9b;--loss:#ff7b72}
+*,*:before,*:after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px;font-weight:600}
+h2{font-size:16px;margin:32px 0 10px;font-weight:600}
+.sub{color:var(--mut);margin:0 0 20px}
+.hero{background:var(--sf);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-wrap:wrap;gap:20px 36px;align-items:flex-end}
+.big{font-size:40px;line-height:1.1;font-weight:600;letter-spacing:-.02em}
+.lbl{color:var(--mut);font-size:13px}
+.stat{font-size:18px;font-weight:500}
+.gain{color:var(--gain)}.loss{color:var(--loss)}
+form{background:var(--sf);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+label{display:flex;flex-direction:column;font-size:13px;color:var(--mut);gap:4px}
+input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;width:100%}
+input:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--sf);color:var(--ink);padding:7px 12px}
+button.p{background:var(--acc);border-color:var(--acc);color:var(--sf);font-weight:500;align-self:end}
+button.s{padding:4px 8px;font-size:13px}
+.err{grid-column:1/-1;color:var(--loss);margin:0;font-size:14px}
+.hint{grid-column:1/-1;color:var(--mut);font-size:13px;margin:0}
+.tw{overflow-x:auto;background:var(--sf);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-weight:500;color:var(--mut);font-size:13px}
+tr:last-child td{border-bottom:0}
+.empty{padding:20px;color:var(--mut);text-align:center}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs button[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:var(--sf)}
+svg{width:100%;height:auto;display:block}
+.cell input{width:110px;padding:4px 6px}
+</style>
+</head>
+<body>
+<main id="root"></main>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script>
+const {useState,useEffect}=React;
+const html=htm.bind(React.createElement);
+const KEY="inversiones:v1";
+const load=()=>{try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}};
+const money=n=>(n<0?"-":"")+"$"+Math.abs(n).toLocaleString("es-CO",{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct=n=>(n>0?"+":"")+n.toFixed(2)+"%";
+const cls=n=>n>0?"gain":n<0?"loss":"";
+const cost=o=>o.qty*o.buy+(o.fee||0);
+const profit=o=>o.qty*(o.sell-o.buy)-(o.fee||0);
+const closed=o=>o.sell!=null&&!!o.sellDate;
+const today=()=>new Date().toISOString().slice(0,10);
+const fdate=d=>d?new Date(d+"T12:00").toLocaleDateString("es",{day:"2-digit",month:"short",year:"numeric"}):"—";
+const plabel=(k,len)=>len===7?new Date(k+"-01T12:00").toLocaleDateString("es",{month:"short",year:"numeric"}):k;
+
+function group(ops,len){
+  const m={};
+  ops.filter(closed).forEach(o=>{const k=o.sellDate.slice(0,len);const r=m[k]=m[k]||{k,cap:0,gan:0,n:0};r.cap+=cost(o);r.gan+=profit(o);r.n++});
+  let c=0,g=0;
+  return Object.values(m).sort((a,b)=>a.k<b.k?-1:1).map(r=>{c+=r.cap;g+=r.gan;return{...r,pct:r.cap?r.gan/r.cap*100:0,capAcum:c,ganAcum:g,pctAcum:c?g/c*100:0}});
+}
+
+function Chart({rows}){
+  if(!rows.length)return null;
+  const W=640,H=190,P=28,vals=rows.flatMap(r=>[r.gan,r.ganAcum,0]);
+  const mn=Math.min(...vals),mx=Math.max(...vals),span=(mx-mn)||1;
+  const y=v=>P+(H-2*P)*(1-(v-mn)/span),bw=(W-2*P)/rows.length;
+  const line=rows.map((r,i)=>(P+bw*i+bw/2)+","+y(r.ganAcum)).join(" ");
+  return html`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Ganancia por mes y acumulada">
+    <line x1=${P} x2=${W-P} y1=${y(0)} y2=${y(0)} stroke="var(--line)"/>
+    ${rows.map((r,i)=>html`<rect key=${r.k} x=${P+bw*i+bw*.2} width=${bw*.6} y=${Math.min(y(r.gan),y(0))} height=${Math.abs(y(r.gan)-y(0))} fill=${r.gan>=0?"var(--gain)":"var(--loss)"} opacity=".55"/>`)}
+    <polyline points=${line} fill="none" stroke="var(--acc)" stroke-width="2.5"/>
+    ${rows.map((r,i)=>html`<text key=${"t"+r.k} x=${P+bw*i+bw/2} y=${H-6} text-anchor="middle" font-size="11" fill="var(--mut)">${plabel(r.k,7).replace(" de ","/")}</text>`)}
+  </svg>`;
+}
+
+function Form({onAdd}){
+  const empty={name:"",qty:"",buyDate:today(),buy:"",fee:"",sellDate:"",sell:""};
+  const [f,setF]=useState(empty);const [err,setErr]=useState("");
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const submit=e=>{
+    e.preventDefault();
+    const q=+f.qty,b=+f.buy,hasS=f.sell!==""||f.sellDate!=="";
+    if(!f.name.trim())return setErr("Escribe el nombre o ticker del activo.");
+    if(!(q>0)||!(b>0))return setErr("Cantidad y precio de compra deben ser mayores que 0.");
+    if(hasS&&(f.sell===""||!f.sellDate||!(+f.sell>0)))return setErr("Para registrar la venta completa el precio y la fecha de venta.");
+    if(hasS&&f.sellDate<f.buyDate)return setErr("La fecha de venta no puede ser anterior a la de compra.");
+    onAdd({id:Date.now(),name:f.name.trim().toUpperCase(),qty:q,buy:b,buyDate:f.buyDate,fee:+f.fee||0,sell:hasS?+f.sell:null,sellDate:hasS?f.sellDate:""});
+    setF(empty);setErr("");
+  };
+  const inp=(k,l,t,x)=>html`<label>${l}<input type=${t} value=${f[k]} onInput=${set(k)} step=${t==="number"?"any":undefined} min=${t==="number"?"0":undefined} ...${x||{}}/></label>`;
+  return html`<form onSubmit=${submit}>
+    ${inp("name","Activo (ej. AAPL)","text")}
+    ${inp("qty","Cantidad","number")}
+    ${inp("buyDate","Fecha de compra","date")}
+    ${inp("buy","Precio de compra","number")}
+    ${inp("fee","Comisiones totales (opcional)","number")}
+    ${inp("sellDate","Fecha de venta","date")}
+    ${inp("sell","Precio de venta","number")}
+    <button class="p" type="submit">Guardar operación</button>
+    <p class="hint">Deja la venta vacía si todavía tienes la posición; puedes cerrarla después desde la tabla.</p>
+    ${err&&html`<p class="err" role="alert">${err}</p>`}
+  </form>`;
+}
+
+function Periods({ops}){
+  const [len,setLen]=useState(7);
+  const rows=group(ops,len);
+  return html`<div>
+    <div class="tabs">
+      <button aria-pressed=${len===7} onClick=${()=>setLen(7)}>Mensual</button>
+      <button aria-pressed=${len===4} onClick=${()=>setLen(4)}>Anual</button>
+    </div>
+    ${len===7&&html`<${Chart} rows=${rows}/>`}
+    <div class="tw"><table>
+      <thead><tr><th>Periodo</th><th>Capital invertido</th><th>Ganancia</th><th>Rentabilidad</th><th>Capital acum.</th><th>Ganancia acum.</th><th>Rent. acum.</th></tr></thead>
+      <tbody>${rows.length?rows.slice().reverse().map(r=>html`<tr key=${r.k}>
+        <td>${plabel(r.k,len)}</td><td>${money(r.cap)}</td>
+        <td class=${cls(r.gan)}>${money(r.gan)}</td><td class=${cls(r.pct)}>${pct(r.pct)}</td>
+        <td>${money(r.capAcum)}</td><td class=${cls(r.ganAcum)}>${money(r.ganAcum)}</td><td class=${cls(r.pctAcum)}>${pct(r.pctAcum)}</td>
+      </tr>`):html`<tr><td colspan="7" class="empty">Aún no hay ventas registradas. Cierra una operación para ver tu rentabilidad.</td></tr>`}</tbody>
+    </table></div>
+    <p class="lbl">Las ventas se cuentan en el periodo de su fecha de venta. Capital invertido = costo de compra (con comisiones) de las operaciones vendidas.</p>
+  </div>`;
+}
+
+function App(){
+  const [ops,setOps]=useState(load);
+  const [closing,setClosing]=useState(null);
+  const [cf,setCf]=useState({sell:"",sellDate:today()});
+  const [del,setDel]=useState(null);
+  useEffect(()=>{try{localStorage.setItem(KEY,JSON.stringify(ops))}catch(e){}},[ops]);
+  const done=ops.filter(closed),open=ops.filter(o=>!closed(o));
+  const cap=done.reduce((s,o)=>s+cost(o),0),gan=done.reduce((s,o)=>s+profit(o),0);
+  const rent=cap?gan/cap*100:0,capOpen=open.reduce((s,o)=>s+cost(o),0);
+  const close=o=>{
+    if(!(+cf.sell>0)||!cf.sellDate||cf.sellDate<o.buyDate)return;
+    setOps(ops.map(x=>x.id===o.id?{...x,sell:+cf.sell,sellDate:cf.sellDate}:x));setClosing(null);
+  };
+  const sorted=ops.slice().sort((a,b)=>(b.sellDate||"9999")<(a.sellDate||"9999")?-1:1||0);
+  return html`<div>
+    <h1>Mis inversiones</h1>
+    <p class="sub">Registra tus compras y ventas; la rentabilidad se calcula sola. Tus datos se guardan solo en este navegador.</p>
+    <div class="hero">
+      <div><div class="lbl">Ganancia realizada</div><div class=${"big "+cls(gan)}>${money(gan)}</div></div>
+      <div><div class="lbl">Rentabilidad sobre lo vendido</div><div class=${"stat "+cls(rent)}>${pct(rent)}</div></div>
+      <div><div class="lbl">Capital invertido (vendido)</div><div class="stat">${money(cap)}</div></div>
+      <div><div class="lbl">En posiciones abiertas (${open.length})</div><div class="stat">${money(capOpen)}</div></div>
+    </div>
+    <h2>Nueva operación</h2>
+    <${Form} onAdd=${o=>setOps([...ops,o])}/>
+    <h2>Rentabilidad por periodo</h2>
+    <${Periods} ops=${ops}/>
+    <h2>Operaciones</h2>
+    <div class="tw"><table>
+      <thead><tr><th>Activo</th><th>Cantidad</th><th>Compra</th><th>Venta</th><th>Ganancia</th><th>Ganancia %</th><th></th></tr></thead>
+      <tbody>${sorted.length?sorted.map(o=>{
+        const c=closed(o),p=c?profit(o):0,pc=c?p/cost(o)*100:0;
+        return html`<tr key=${o.id}>
+          <td>${o.name}</td><td>${o.qty}</td>
+          <td>${money(o.buy)}<div class="lbl">${fdate(o.buyDate)}</div></td>
+          <td>${c?html`${money(o.sell)}<div class="lbl">${fdate(o.sellDate)}</div>`:closing===o.id?html`<span class="cell">
+              <input type="number" step="any" min="0" placeholder="Precio" aria-label="Precio de venta" value=${cf.sell} onInput=${e=>setCf({...cf,sell:e.target.value})}/>
+              <input type="date" aria-label="Fecha de venta" value=${cf.sellDate} onInput=${e=>setCf({...cf,sellDate:e.target.value})}/></span>`:html`<span class="lbl">Abierta</span>`}</td>
+          <td class=${cls(p)}>${c?money(p):"—"}</td>
+          <td class=${cls(pc)}>${c?pct(pc):"—"}</td>
+          <td>${!c&&(closing===o.id?html`<button class="s" onClick=${()=>close(o)}>Vender</button> `:html`<button class="s" onClick=${()=>{setClosing(o.id);setCf({sell:"",sellDate:today()})}}>Cerrar</button> `)}
+              <button class="s" onClick=${()=>del===o.id?(setOps(ops.filter(x=>x.id!==o.id)),setDel(null)):setDel(o.id)}>${del===o.id?"¿Seguro?":"Borrar"}</button></td>
+        </tr>`}):html`<tr><td colspan="7" class="empty">Todavía no hay operaciones. Registra tu primera compra arriba.</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+ReactDOM.createRoot(document.getElementById("root")).render(html`<${App}/>`);
+</script>
+</body>
+</html>
